@@ -7,6 +7,13 @@ mode_symmetry = [
     ["dev", "release"]
 ]
 
+ignore_dir = [
+    "node_modules",
+    "sea-modules",
+    "spm_modules",
+    "sofax-dump",
+    "target"
+]
 
 excl_type = [
     'iml',
@@ -36,7 +43,6 @@ excl_type = [
     'woff'
 ]
 
-
 anna_map = {
     "java": "//## ${} ##//",
     "js": "//## ${} ##//",
@@ -64,8 +70,6 @@ anna_standard = {
 ########### end #############
 
 
-
-
 import os
 import sys
 import re
@@ -77,6 +81,9 @@ _ANNA_ = 1
 _DEANNA_ = 2
 _NORMAL_ = 0
 _SLASH_ = ("/" if platform.system() != "Windows" else "\\")
+
+_GRAMMAR_ = 0
+_NOBLOCK_ = 1
 
 file_types = []
 hit_mode = []
@@ -144,6 +151,17 @@ def is_ignore(name):
     return False
 
 
+def is_ignore_dir(dir_name):
+    # 默认隐藏文件夹忽略和target文件夹忽略
+
+    if dir_name.startswith('.') and dir_name != "." and dir_name != "." + _SLASH_:
+        return True
+    if dir_name in ignore_dir:
+        return True
+
+    return False
+
+
 def anna_code(code, code_type):
     """
     代码块注释
@@ -182,15 +200,17 @@ def verify_file(name):
     f = open(os.path.realpath(name))
 
     switch = False
+    not_found_block = True
 
     for line in f:
         match = mark_pattern.search(line)
         if match:
+            not_found_block = False
             if match.group(1).strip() != _END_:
                 switch = True
             else:
                 switch = False
-    return switch
+    return [switch, not_found_block]
 
 
 def process_file(name):
@@ -212,9 +232,16 @@ def process_file(name):
     sample_pattern = re.compile("^( *)" + anna_standard[file_type].replace("${}", "(.*)"))
 
     # 如果文件语法不正确，则不处理
-    if verify_file(name):
+    verify_file_res = verify_file(name)
+    if verify_file_res[_GRAMMAR_]:
         print "文件: " + name + " 语法校验失败，存在非闭合语法块，请校验规则！！！"
         return
+
+    if verify_file_res[_NOBLOCK_]:
+        # print "mei you shen ming bu yao du qu" + name
+        return
+
+    print 'Change: ' + name
 
     f = open(os.path.realpath(name))
     text = ""
@@ -227,7 +254,8 @@ def process_file(name):
         match = mark_pattern.search(line)
         if match and match.group(1).strip() == _END_:
             block_status = _NORMAL_
-        text += anna_code(line, file_type) if block_status == _ANNA_ else deanna_code(line, file_type) if block_status == _DEANNA_ else line
+        text += anna_code(line, file_type) if block_status == _ANNA_ else deanna_code(line,
+                                                                                      file_type) if block_status == _DEANNA_ else line
         if match:
             if match.group(1).strip() in hit_mode:
                 block_status = _DEANNA_
@@ -246,10 +274,11 @@ def scan_dir(file_path):
     if os.path.isfile(file_path):
         process_file(file_path)
         return
-    # 默认隐藏文件夹忽略和target文件夹忽略
+
     dir_name = file_path.split(_SLASH_)[-1]
-    if re.compile("^.(\w+)").search(file_path) or dir_name == "target":
+    if is_ignore_dir(dir_name):
         return
+
     # 进行递归
     file_list = os.listdir(file_path)
     for f in file_list:
